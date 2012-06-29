@@ -8,6 +8,7 @@
   // register namespace
   $.extend(true, window, {
     "Slick": {
+      "CollapseGroup": CollapseGroup, // aflx
       "Event": Event,
       "EventData": EventData,
       "EventHandler": EventHandler,
@@ -26,6 +27,40 @@
       "GlobalEditorLock": new EditorLock()
     }
   });
+
+  //aflx
+  function CollapseGroup(startIndex, endIndex) {
+      this.startIndex = startIndex ? startIndex : 0;
+      this.endIndex = endIndex ? endIndex : 0;
+      this.startY = 0;
+      this.predecessor = null;
+      this.successor = null;
+      this.openBeforeGroupCache = null;
+
+      console.log("create group for index " + this.startIndex + " - " + this.endIndex);
+
+      this.openBeforeGroup = function() {
+          if (!this.openBeforeGroupCache) {
+              if (!this.predecessor) {
+                  this.openBeforeGroupCache = 0;
+              } else {
+                  this.openBeforeGroupCache = this.predecessor.openBeforeGroup() + 1;
+              }
+          }
+
+          return this.openBeforeGroupCache;
+      }
+
+      this.invalidate = function() {
+          console.log("invalidate group for index " + this.startIndex + " - " + this.endIndex);
+          this.openBeforeGroupCache = null;
+      }
+
+      this.destroy = function() {
+          console.log("delete group for index " + this.startIndex + " - " + this.endIndex);
+          delete this;
+      }
+  }
 
   /***
    * An event object for passing data to event handlers and letting them control propagation.

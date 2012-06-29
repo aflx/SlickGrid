@@ -96,6 +96,10 @@ if (typeof Slick === "undefined") {
       headerCssClass: null
     };
 
+
+    // aflx
+    var collapseRowGroups = null;
+
     // scroller
     var th;   // virtual height
     var h;    // real scrollable height
@@ -897,8 +901,7 @@ if (typeof Slick === "undefined") {
 
       trigger(self.onBeforeDestroy, {});
 
-      var i = plugins.length;
-      while(i--) {
+      for (var i = 0; i < plugins.length; i++) {
         unregisterPlugin(plugins[i]);
       }
 
@@ -1127,8 +1130,162 @@ if (typeof Slick === "undefined") {
       render();
     }
 
+    // aflx
+    function toggleCollapse(index) {
+        var i = 0;
+        var currentCollapseGroup = collapseRowGroups[index];
+        var successorCollapseGroup = currentCollapseGroup.successor;
+        var isExpanded = successorCollapseGroup ? successorCollapseGroup.startIndex == index +1 : false;
+
+        if (isExpanded) {
+            // collapse
+            currentCollapseGroup.endIndex = successorCollapseGroup.endIndex;
+
+            for (i = successorCollapseGroup.startIndex; i <= successorCollapseGroup.endIndex; i++) {
+                collapseRowGroups[i] = currentCollapseGroup;
+            }
+
+            // change pointers
+            currentCollapseGroup.successor = successorCollapseGroup.successor;
+
+            if (successorCollapseGroup.successor)
+                successorCollapseGroup.successor.predecessor = currentCollapseGroup;
+
+            successorCollapseGroup.destroy();
+        } else {
+            // expand
+            var newCollapseGroup = new Slick.CollapseGroup(index + 1, successorCollapseGroup ? successorCollapseGroup.startIndex - 1 : collapseRowGroups.length - 1);
+            currentCollapseGroup.endIndex = index;
+
+            // change pointer
+            newCollapseGroup.successor = currentCollapseGroup.successor;
+            currentCollapseGroup.successor = newCollapseGroup;
+            newCollapseGroup.predecessor = currentCollapseGroup;
+
+            newCollapseGroup.startY = getRowTop(index) + getRowHeight(index) + 1;
+
+            for (i = newCollapseGroup.startIndex; i <= newCollapseGroup.endIndex; i++) {
+                collapseRowGroups[i] = newCollapseGroup;
+            }
+
+        }
+        invalidateCollapseGroupsAfter(currentCollapseGroup);
+        updateRowCount();
+
+    }
+
+    function invalidateCollapseGroupsAfter(group) {
+        while (group.successor) {
+            group.successor.invalidate();
+            group = group.successor;
+        }
+
+        invalidateAllRows();
+        render();
+    }
+
+    //aflx
+    function updateCollapseGroups() {
+        //if (data.length > 0 && (!collapseRowGroups || data.length < collapseRowGroups.length)) {
+            collapseRowGroups = new Array(data.length);
+            var groupObject = new Slick.CollapseGroup(0, data.length);
+            groupObject.openBeforeGroupCache = 0;
+
+            for (var i = 0; i < collapseRowGroups.length; i++) {
+                collapseRowGroups[i] = groupObject;
+            }
+        /*} else {
+            if (data.length > collapseRowGroups.length) {
+                var i = 0;
+                var diff = data.length - collapseRowGroups.length;
+                var lastGroupObject = collapseRowGroups[collapseRowGroups.length - 1];
+
+                // TODO: We have to check whether the last item is expanded or not...
+
+                // update only new rows
+                for (i = diff; i < diff; i++) {
+                    collapseRowGroups.push(lastGroupObject);
+                }
+            }
+        }*/
+    }
+
+    function getVisibleRowCount(top, bottom) {
+        var startRow = Math.floor(getRow(top)),
+            endRow = Math.floor(getRow(bottom));
+
+        console.log(top + " - " + startRow + ": " + collapseRowGroups[startRow] + " - " + bottom + " - " + endRow + ": " + collapseRowGroups[endRow - 1]);
+
+        var open = collapseRowGroups[endRow - 1].openBeforeGroup() - collapseRowGroups[startRow].openBeforeGroup();
+
+        return open;
+    }
+
+
+    function getRow(top) {
+        var row = Math.ceil(top / th);
+        var group = collapseRowGroups[row];
+
+        if (top == group.startY) {
+            return group.startIndex;
+        }
+
+        if (!group.predecessor && !group.successor) {
+            // we only have one group
+            row = group.startIndex + Math.floor((top - group.startY) / 25);
+        } else {
+
+        }
+
+        if (top < group.startY) {
+            while (group.predecessor && top < group.startY) {
+                group = group.predecessor;
+            }
+        } else {
+            while (group.successor && (top > group.startY && top >= group.successor.startY)) {
+                group = group.successor;
+            }
+        }
+
+        if (group.successor && (group.successor.startY - top) < 100) {
+            row = group.successor.startIndex - 1;
+        } else {
+            row = group.startIndex + Math.floor((top - group.startY) / 25);
+        }
+
+        return row;
+    }
+
+    function getRowTop(row) {
+        var currentCollapseGroup = collapseRowGroups[row];
+        var open = currentCollapseGroup.openBeforeGroup();
+
+        console.log("Open before row " + row + ": " + open);
+
+        return open * 100 + (row - open) * 25;
+    }
+
+    function getRowHeight(row) {
+        var currentCollapseGroup = collapseRowGroups[row];
+        var successorCollapseGroup = currentCollapseGroup.successor;
+        var isExpanded = successorCollapseGroup ? successorCollapseGroup.startIndex == row +1 : false;
+
+        if (isExpanded) {
+            return 100;
+        } else {
+            return 25;
+        }
+    }
+
+    function getOpenRowCount() {
+        if (!collapseRowGroups || collapseRowGroups.length == 0) return 0;
+
+        return collapseRowGroups[collapseRowGroups.length - 1].openBeforeGroup();
+    }
+
     function setData(newData, scrollToTop) {
       data = newData;
+      updateCollapseGroups();
       invalidateAllRows();
       updateRowCount();
       if (scrollToTop) {
@@ -1266,7 +1423,15 @@ if (typeof Slick === "undefined") {
         rowCss += " " + metadata.cssClasses;
       }
 
-      stringArray.push("<div class='ui-widget-content " + rowCss + "' style='top:" + (options.rowHeight * row - offset) + "px'>");
+        // aflx
+      var top = getRowTop(row);
+      var height = getRowHeight(row);
+
+
+
+      console.log("Row " + row + " top: " + top + " height: " + height);
+
+      stringArray.push("<div class='ui-widget-content " + rowCss + "' style='height: " + height + "px; top:" + (top - offset) + "px'>");
 
       var colspan, m;
       for (var i = 0, cols = columns.length; i < cols; i++) {
@@ -1445,8 +1610,12 @@ if (typeof Slick === "undefined") {
         }
       }
 
-      var oldH = h;
-      th = Math.max(options.rowHeight * numberOfRows, viewportH - scrollbarDimensions.height);
+      var oldH = h,
+          open = getOpenRowCount();
+      th = Math.max(open * 100 + (data.length - open) * 25, viewportH - scrollbarDimensions.height);
+      // aflx
+      //th = Math.max(options.rowHeight * numberOfRows, viewportH - scrollbarDimensions.height);
+
       if (th < maxSupportedCssHeight) {
         // just one page
         h = ph = th;
@@ -1492,10 +1661,32 @@ if (typeof Slick === "undefined") {
         viewportTop = scrollTop;
       }
 
+      //aflx
+
+      var top, bottom,
+          topY = viewportTop + offset,
+          bottomY = viewportTop + offset + viewportH;
+
+
+        if (!collapseRowGroups || collapseRowGroups.length == 0) {
+          top = Math.floor((topY) / options.rowHeight);
+          bottom = Math.ceil(bottomY / options.rowHeight);
+        } else {
+          top = Math.floor(getRow(topY));
+          bottom = Math.ceil(getRow(bottomY)) - getVisibleRowCount(topY, bottomY);
+
+          console.log(getVisibleRowCount(topY, bottomY));
+        }
+
+      console.log("top:" + topY + " - row: " + top);
+      console.log("bottom:" + bottomY + " - row: " + bottom);
+      return {top: top, bottom: bottom};
+      /*
       return {
         top: Math.floor((viewportTop + offset) / options.rowHeight),
         bottom: Math.ceil((viewportTop + offset + viewportH) / options.rowHeight)
       };
+      */
     }
 
     function getRenderedRange(viewportTop) {
@@ -1668,10 +1859,11 @@ if (typeof Slick === "undefined") {
         }
 
         ensureCellNodesInRowsCache(row);
-        for (var i = 0; i < cacheEntry.cellNodesByColumnIdx.length; i++) {
-          var m = columns[i];
+        for (var columnIdx in cacheEntry.cellNodesByColumnIdx) {
+          columnIdx = columnIdx | 0;
+          var m = columns[columnIdx];
           if (m.asyncPostRender) {
-            var node = cacheEntry.cellNodesByColumnIdx[i];
+            var node = cacheEntry.cellNodesByColumnIdx[columnIdx];
             m.asyncPostRender(node, postProcessFromRow, getDataItem(row), m);
           }
         }
@@ -1887,6 +2079,8 @@ if (typeof Slick === "undefined") {
       if (e.isImmediatePropagationStopped()) {
         return;
       }
+
+      console.log(self.getDataItem(cell.row));
 
       if ((activeCell != cell.cell || activeRow != cell.row) && canCellBeActive(cell.row, cell.cell)) {
         if (!getEditorLock().isActive() || getEditorLock().commitCurrentEdit()) {
@@ -2848,6 +3042,9 @@ if (typeof Slick === "undefined") {
       "setSelectionModel": setSelectionModel,
       "getSelectedRows": getSelectedRows,
       "setSelectedRows": setSelectedRows,
+
+      // aflx
+      "toggleCollapse": toggleCollapse,
 
       "render": render,
       "invalidate": invalidate,
